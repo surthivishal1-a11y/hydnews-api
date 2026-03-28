@@ -104,7 +104,8 @@ def get_all():
     conn = sqlite3.connect("hydnews.db")
     c = conn.cursor()
     c.execute("""
-        SELECT id, university, title, url, status, detected_at, approved_at, approved_by
+        SELECT id, university, title, url, status, 
+        detected_at, approved_at, approved_by
         FROM updates ORDER BY detected_at DESC LIMIT 200
     """)
     rows = c.fetchall()
@@ -134,7 +135,8 @@ def reject():
     data = request.json
     conn = sqlite3.connect("hydnews.db")
     c = conn.cursor()
-    c.execute("UPDATE updates SET status='rejected' WHERE id=?", (data.get('id'),))
+    c.execute("UPDATE updates SET status='rejected' WHERE id=?",
+              (data.get('id'),))
     conn.commit()
     conn.close()
     return jsonify({"success": True})
@@ -188,7 +190,8 @@ def add_student():
             VALUES (?, ?, ?, ?, ?, ?)
         """, (data.get('phone'), data.get('name'),
               data.get('university'), data.get('course'),
-              data.get('year'), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+              data.get('year'),
+              datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
         success = c.rowcount > 0
     except:
