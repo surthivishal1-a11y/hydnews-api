@@ -3,7 +3,7 @@ import sqlite3
 import threading
 from datetime import datetime
 
-app = Flask(_name_)
+app = Flask(__name__)
 db_lock = threading.Lock()
 
 def setup_db():
@@ -162,6 +162,6 @@ def health():
     setup_db()
     return jsonify({"status": "HydNews API Running"})
 
-if _name_ == '_main_':
+if __name__ == '__main__':
     setup_db()
     app.run(host='0.0.0.0', port=5000)
