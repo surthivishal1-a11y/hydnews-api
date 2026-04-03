@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request
 import threading
 from datetime import datetime
 import os
+import psycopg2
 
 app = Flask(__name__)
 db_lock = threading.Lock()
