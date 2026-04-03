@@ -1,16 +1,22 @@
 from flask import Flask, jsonify, request
-import sqlite3
 import threading
 from datetime import datetime
+import os
 
 app = Flask(__name__)
 db_lock = threading.Lock()
 
+DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://postgres:IlQWGghtCaBGVflkKoCyDCBnhIERySuf@postgres.railway.internal:5432/railway')
+
+def get_conn():
+    import psycopg2
+    return psycopg2.connect(DATABASE_URL)
+
 def setup_db():
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     c.execute("""CREATE TABLE IF NOT EXISTS updates (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         university TEXT,
         title TEXT UNIQUE,
         url TEXT,
@@ -21,7 +27,7 @@ def setup_db():
         approved_by TEXT,
         message TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS students (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         phone TEXT UNIQUE,
         name TEXT,
         university TEXT,
@@ -38,20 +44,20 @@ def setup_db():
         last_updated TEXT,
         is_active INTEGER DEFAULT 1)""")
     c.execute("""CREATE TABLE IF NOT EXISTS admin_users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         username TEXT UNIQUE,
         password TEXT,
         name TEXT,
         role TEXT DEFAULT 'editor',
         last_login TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS sent_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         update_id INTEGER,
         student_phone TEXT,
         sent_at TEXT,
         status TEXT DEFAULT 'sent')""")
     c.execute("""CREATE TABLE IF NOT EXISTS ads (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         advertiser_name TEXT,
         ad_text TEXT,
         target_university TEXT,
@@ -59,9 +65,10 @@ def setup_db():
         is_active INTEGER DEFAULT 1,
         created_at TEXT,
         expires_at TEXT)""")
-    c.execute("""INSERT OR IGNORE INTO admin_users
+    c.execute("""INSERT INTO admin_users
         (username, password, name, role)
-        VALUES ('vishal', 'hydnews2026', 'Vishal', 'admin')""")
+        VALUES ('vishal', 'hydnews2026', 'Vishal', 'admin')
+        ON CONFLICT (username) DO NOTHING""")
     conn.commit()
     conn.close()
 
@@ -73,13 +80,13 @@ def health():
 @app.route('/login', methods=['POST'])
 def login():
     data = request.json
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT * FROM admin_users WHERE username=? AND password=?",
+    c.execute("SELECT * FROM admin_users WHERE username=%s AND password=%s",
               (data.get('username'), data.get('password')))
     user = c.fetchone()
     if user:
-        c.execute("UPDATE admin_users SET last_login=? WHERE username=?",
+        c.execute("UPDATE admin_users SET last_login=%s WHERE username=%s",
                   (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), data.get('username')))
         conn.commit()
     conn.close()
@@ -91,25 +98,28 @@ def login():
 def add_update():
     data = request.json
     with db_lock:
-        conn = sqlite3.connect("hydnews.db")
+        conn = get_conn()
         c = conn.cursor()
         try:
-            c.execute("""INSERT OR IGNORE INTO updates
+            c.execute("""INSERT INTO updates
                 (university, title, url, category, status, detected_at)
-                VALUES (?, ?, ?, ?, 'pending', ?)""",
+                VALUES (%s, %s, %s, %s, 'pending', %s)
+                ON CONFLICT (title) DO NOTHING""",
                 (data.get('university'), data.get('title'),
                  data.get('url'), data.get('category', 'General'),
                  datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
             conn.commit()
             inserted = c.rowcount
         except Exception as e:
+            conn.rollback()
             inserted = 0
+            print("DB Error:", e)
         conn.close()
     return jsonify({"success": inserted > 0})
 
 @app.route('/updates/pending', methods=['GET'])
 def get_pending():
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     c.execute("""SELECT id, university, title, url, category, detected_at
         FROM updates WHERE status='pending'
@@ -123,17 +133,17 @@ def get_pending():
 def get_all():
     limit = request.args.get('limit', 200)
     status = request.args.get('status', None)
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     if status:
         c.execute("""SELECT id, university, title, url, category,
             status, detected_at, approved_at, approved_by
-            FROM updates WHERE status=?
-            ORDER BY detected_at DESC LIMIT ?""", (status, limit))
+            FROM updates WHERE status=%s
+            ORDER BY detected_at DESC LIMIT %s""", (status, limit))
     else:
         c.execute("""SELECT id, university, title, url, category,
             status, detected_at, approved_at, approved_by
-            FROM updates ORDER BY detected_at DESC LIMIT ?""", (limit,))
+            FROM updates ORDER BY detected_at DESC LIMIT %s""", (limit,))
     rows = c.fetchall()
     conn.close()
     return jsonify([{"id": r[0], "university": r[1], "title": r[2],
@@ -144,10 +154,10 @@ def get_all():
 @app.route('/updates/approve', methods=['POST'])
 def approve():
     data = request.json
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     c.execute("""UPDATE updates SET status='approved',
-        approved_at=?, approved_by=?, message=? WHERE id=?""",
+        approved_at=%s, approved_by=%s, message=%s WHERE id=%s""",
         (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
          data.get('approved_by', 'admin'),
          data.get('message', ''), data.get('id')))
@@ -159,12 +169,12 @@ def approve():
 def approve_all():
     data = request.json
     year = data.get('year', '2026')
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     c.execute("""UPDATE updates SET status='approved',
-        approved_at=?, approved_by='auto'
+        approved_at=%s, approved_by='auto'
         WHERE status='pending'
-        AND detected_at >= ?""",
+        AND detected_at >= %s""",
         (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
          year + '-01-01'))
     approved = c.rowcount
@@ -181,16 +191,16 @@ def approve_all():
 @app.route('/updates/reject', methods=['POST'])
 def reject():
     data = request.json
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
-    c.execute("UPDATE updates SET status='rejected' WHERE id=?", (data.get('id'),))
+    c.execute("UPDATE updates SET status='rejected' WHERE id=%s", (data.get('id'),))
     conn.commit()
     conn.close()
     return jsonify({"success": True})
 
 @app.route('/updates/stats', methods=['GET'])
 def stats():
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM updates WHERE status='pending'")
     pending = c.fetchone()[0]
@@ -204,7 +214,7 @@ def stats():
     students = c.fetchone()[0]
     c.execute("SELECT COUNT(*) FROM students WHERE status='alumni'")
     alumni = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM updates WHERE detected_at >= date('now')")
+    c.execute("SELECT COUNT(*) FROM updates WHERE detected_at >= CURRENT_DATE::text")
     today = c.fetchone()[0]
     conn.close()
     return jsonify({"pending": pending, "approved": approved,
@@ -213,7 +223,7 @@ def stats():
 
 @app.route('/updates/by_category', methods=['GET'])
 def by_category():
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     c.execute("""SELECT category, COUNT(*) as count
         FROM updates GROUP BY category ORDER BY count DESC""")
@@ -226,7 +236,7 @@ def get_students():
     university = request.args.get('university', None)
     course = request.args.get('course', None)
     year = request.args.get('year', None)
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     query = """SELECT id, phone, name, university, course,
         current_year, current_semester, hall_ticket,
@@ -234,13 +244,13 @@ def get_students():
         FROM students WHERE is_active=1"""
     params = []
     if university:
-        query += " AND university=?"
+        query += " AND university=%s"
         params.append(university)
     if course:
-        query += " AND course=?"
+        query += " AND course=%s"
         params.append(course)
     if year:
-        query += " AND current_year=?"
+        query += " AND current_year=%s"
         params.append(year)
     query += " ORDER BY registered_at DESC"
     c.execute(query, params)
@@ -262,14 +272,15 @@ def add_student():
         total_years = 2
     else:
         total_years = 3
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     try:
-        c.execute("""INSERT OR IGNORE INTO students
+        c.execute("""INSERT INTO students
             (phone, name, university, course, current_year,
              current_semester, hall_ticket, regulation,
              total_years, registered_at, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (phone) DO NOTHING""",
             (data.get('phone'), data.get('name'),
              data.get('university'), data.get('course'),
              data.get('year', 1), data.get('semester', 1),
@@ -280,6 +291,7 @@ def add_student():
         conn.commit()
         success = c.rowcount > 0
     except Exception as e:
+        conn.rollback()
         success = False
     conn.close()
     return jsonify({"success": success})
@@ -289,11 +301,11 @@ def update_progress():
     data = request.json
     phone = data.get('phone')
     passed = data.get('passed', False)
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     c.execute("""SELECT current_year, current_semester,
         total_years, has_backlog, backlog_sems
-        FROM students WHERE phone=?""", (phone,))
+        FROM students WHERE phone=%s""", (phone,))
     student = c.fetchone()
     if not student:
         conn.close()
@@ -308,14 +320,14 @@ def update_progress():
             new_year = current_year + 1
         if new_year > total_years:
             c.execute("""UPDATE students SET status='alumni',
-                last_updated=? WHERE phone=?""",
+                last_updated=%s WHERE phone=%s""",
                 (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), phone))
             conn.commit()
             conn.close()
             return jsonify({"success": True, "status": "alumni",
                 "message": "Degree completed! Congratulations!"})
-        c.execute("""UPDATE students SET current_year=?,
-            current_semester=?, last_updated=? WHERE phone=?""",
+        c.execute("""UPDATE students SET current_year=%s,
+            current_semester=%s, last_updated=%s WHERE phone=%s""",
             (new_year, new_sem,
              datetime.now().strftime("%Y-%m-%d %H:%M:%S"), phone))
     else:
@@ -324,7 +336,7 @@ def update_progress():
         if sem_key not in backlog:
             backlog = backlog + "," + sem_key if backlog else sem_key
         c.execute("""UPDATE students SET has_backlog=1,
-            backlog_sems=?, last_updated=? WHERE phone=?""",
+            backlog_sems=%s, last_updated=%s WHERE phone=%s""",
             (backlog, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), phone))
     conn.commit()
     conn.close()
@@ -332,7 +344,7 @@ def update_progress():
 
 @app.route('/students/stats', methods=['GET'])
 def student_stats():
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     c.execute("""SELECT university, COUNT(*) FROM students
         WHERE is_active=1 GROUP BY university ORDER BY 2 DESC""")
@@ -359,15 +371,15 @@ def student_stats():
 def get_ads():
     university = request.args.get('university', None)
     course = request.args.get('course', None)
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     query = "SELECT id, advertiser_name, ad_text FROM ads WHERE is_active=1"
     params = []
     if university:
-        query += " AND (target_university=? OR target_university='all')"
+        query += " AND (target_university=%s OR target_university='all')"
         params.append(university)
     if course:
-        query += " AND (target_course=? OR target_course='all')"
+        query += " AND (target_course=%s OR target_course='all')"
         params.append(course)
     c.execute(query, params)
     rows = c.fetchall()
@@ -377,12 +389,12 @@ def get_ads():
 @app.route('/ads/add', methods=['POST'])
 def add_ad():
     data = request.json
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     c.execute("""INSERT INTO ads
         (advertiser_name, ad_text, target_university,
          target_course, is_active, created_at, expires_at)
-        VALUES (?, ?, ?, ?, 1, ?, ?)""",
+        VALUES (%s, %s, %s, %s, 1, %s, %s)""",
         (data.get('advertiser_name'), data.get('ad_text'),
          data.get('target_university', 'all'),
          data.get('target_course', 'all'),
@@ -395,11 +407,11 @@ def add_ad():
 @app.route('/sent_log/add', methods=['POST'])
 def add_sent_log():
     data = request.json
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     c.execute("""INSERT INTO sent_log
         (update_id, student_phone, sent_at, status)
-        VALUES (?, ?, ?, ?)""",
+        VALUES (%s, %s, %s, %s)""",
         (data.get('update_id'), data.get('student_phone'),
          datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
          data.get('status', 'sent')))
@@ -410,24 +422,26 @@ def add_sent_log():
 @app.route('/team/add', methods=['POST'])
 def add_team():
     data = request.json
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     try:
-        c.execute("""INSERT OR IGNORE INTO admin_users
+        c.execute("""INSERT INTO admin_users
             (username, password, name, role)
-            VALUES (?, ?, ?, ?)""",
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (username) DO NOTHING""",
             (data.get('username'), data.get('password'),
              data.get('name'), data.get('role', 'editor')))
         conn.commit()
         success = c.rowcount > 0
     except:
+        conn.rollback()
         success = False
     conn.close()
     return jsonify({"success": success})
 
 @app.route('/team', methods=['GET'])
 def get_team():
-    conn = sqlite3.connect("hydnews.db")
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT id, username, name, role, last_login FROM admin_users")
     rows = c.fetchall()
