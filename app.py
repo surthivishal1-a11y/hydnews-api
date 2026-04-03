@@ -3,7 +3,7 @@ import sqlite3
 import threading
 from datetime import datetime
 
-app = Flask(_name_)
+app = Flask(__name__)
 db_lock = threading.Lock()
 
 def setup_db():
