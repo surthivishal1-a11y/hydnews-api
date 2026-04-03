@@ -3,7 +3,7 @@ import sqlite3
 import threading
 from datetime import datetime
 
-app = Flask(__name__)
+app = Flask(_name_)
 db_lock = threading.Lock()
 
 def setup_db():
@@ -155,6 +155,29 @@ def approve():
     conn.close()
     return jsonify({"success": True})
 
+@app.route('/updates/approve_all', methods=['POST'])
+def approve_all():
+    data = request.json
+    year = data.get('year', '2026')
+    conn = sqlite3.connect("hydnews.db")
+    c = conn.cursor()
+    c.execute("""UPDATE updates SET status='approved',
+        approved_at=?, approved_by='auto'
+        WHERE status='pending'
+        AND detected_at >= ?""",
+        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+         year + '-01-01'))
+    approved = c.rowcount
+    c.execute("""DELETE FROM updates
+        WHERE status='pending'
+        AND (title LIKE '%2010%' OR title LIKE '%2011%'
+        OR title LIKE '%2012%' OR title LIKE '%2013%'
+        OR title LIKE '%2014%' OR title LIKE '%2015%')""")
+    deleted = c.rowcount
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "approved": approved, "deleted": deleted})
+
 @app.route('/updates/reject', methods=['POST'])
 def reject():
     data = request.json
@@ -297,9 +320,9 @@ def update_progress():
              datetime.now().strftime("%Y-%m-%d %H:%M:%S"), phone))
     else:
         backlog = backlog_sems or ""
-        sem_key = f"Y{current_year}S{current_sem}"
+        sem_key = "Y" + str(current_year) + "S" + str(current_sem)
         if sem_key not in backlog:
-            backlog = f"{backlog},{sem_key}" if backlog else sem_key
+            backlog = backlog + "," + sem_key if backlog else sem_key
         c.execute("""UPDATE students SET has_backlog=1,
             backlog_sems=?, last_updated=? WHERE phone=?""",
             (backlog, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), phone))
@@ -414,4 +437,4 @@ def get_team():
 
 if _name_ == '_main_':
     setup_db()
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host='0.0.0.0', port=5000)
