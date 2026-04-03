@@ -3,7 +3,7 @@ import sqlite3
 import threading
 from datetime import datetime
 
-app = Flask(_name_)
+app = Flask(__name__)
 db_lock = threading.Lock()
 
 def setup_db():
@@ -435,6 +435,6 @@ def get_team():
     return jsonify([{"id": r[0], "username": r[1],
         "name": r[2], "role": r[3], "last_login": r[4]} for r in rows])
 
-if _name_ == '_main_':
+if __name__ == '__main__':
     setup_db()
     app.run(host='0.0.0.0', port=5000)
