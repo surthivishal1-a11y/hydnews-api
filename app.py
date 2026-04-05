@@ -4,7 +4,7 @@ import threading
 from datetime import datetime
 import pg8000.native
 
-app = Flask(__name__)
+app = Flask(_name_)
 CORS(app)
 db_lock = threading.Lock()
 
