@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["python313", "libpq"]
+
+[phases.install]
+cmds = ["pip install flask flask-cors gunicorn pg8000"]
+
+[start]
+cmd = "gunicorn app:app --bind 0.0.0.0:$PORT"
