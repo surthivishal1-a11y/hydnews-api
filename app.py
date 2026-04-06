@@ -175,6 +175,20 @@ def approve_all():
     conn.close()
     return jsonify({"success": True})
 
+@app.route('/updates/get/<int:update_id>', methods=['GET'])
+def get_update(update_id):
+    conn = get_conn()
+    rows = conn.run("""SELECT id, university, title, url, category,
+        status, detected_at, approved_at, approved_by
+        FROM updates WHERE id=:id""", id=update_id)
+    conn.close()
+    if not rows:
+        return jsonify({"error": "Not found"}), 404
+    r = rows[0]
+    return jsonify({"id": r[0], "university": r[1], "title": r[2],
+        "url": r[3], "category": r[4], "status": r[5],
+        "detected_at": r[6], "approved_at": r[7], "approved_by": r[8]})
+
 @app.route('/updates/reject', methods=['POST'])
 def reject():
     data = request.json
