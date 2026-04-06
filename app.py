@@ -175,6 +175,14 @@ def approve_all():
     conn.close()
     return jsonify({"success": True})
 
+@app.route('/updates/reject', methods=['POST'])
+def reject():
+    data = request.json
+    conn = get_conn()
+    conn.run("UPDATE updates SET status='rejected' WHERE id=:id", id=data.get('id'))
+    conn.close()
+    return jsonify({"success": True})
+
 @app.route('/updates/get/<int:update_id>', methods=['GET'])
 def get_update(update_id):
     conn = get_conn()
@@ -188,14 +196,6 @@ def get_update(update_id):
     return jsonify({"id": r[0], "university": r[1], "title": r[2],
         "url": r[3], "category": r[4], "status": r[5],
         "detected_at": r[6], "approved_at": r[7], "approved_by": r[8]})
-
-@app.route('/updates/reject', methods=['POST'])
-def reject():
-    data = request.json
-    conn = get_conn()
-    conn.run("UPDATE updates SET status='rejected' WHERE id=:id", id=data.get('id'))
-    conn.close()
-    return jsonify({"success": True})
 
 @app.route('/updates/stats', methods=['GET'])
 def stats():
@@ -430,6 +430,28 @@ def get_team():
     conn.close()
     return jsonify([{"id": r[0], "username": r[1],
         "name": r[2], "role": r[3], "last_login": r[4]} for r in rows])
+
+@app.route('/updates/fix_university', methods=['POST'])
+def fix_university():
+    conn = get_conn()
+    conn.run("""UPDATE updates SET university='General Updates'
+        WHERE university='Manabadi Today'""")
+    conn.close()
+    return jsonify({"success": True})
+
+@app.route('/updates/get/<int:update_id>', methods=['GET'])
+def get_update(update_id):
+    conn = get_conn()
+    rows = conn.run("""SELECT id, university, title, url, category,
+        status, detected_at, approved_at, approved_by
+        FROM updates WHERE id=:id""", id=update_id)
+    conn.close()
+    if not rows:
+        return jsonify({"error": "Not found"}), 404
+    r = rows[0]
+    return jsonify({"id": r[0], "university": r[1], "title": r[2],
+        "url": r[3], "category": r[4], "status": r[5],
+        "detected_at": r[6], "approved_at": r[7], "approved_by": r[8]})
 
 if __name__ == '__main__':
     setup_db()
