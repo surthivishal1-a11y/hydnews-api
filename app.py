@@ -235,6 +235,32 @@ def get_universities():
     conn.close()
     return jsonify([{"university": r[0], "count": r[1]} for r in rows])
 
+@app.route('/updates/by-university', methods=['GET'])
+def get_by_university():
+    university = request.args.get('university', '')
+    limit = int(request.args.get('limit', 200))
+    category = request.args.get('category', None)
+    conn = get_conn()
+    if category:
+        rows = conn.run("""SELECT id, university, title, url, category,
+            status, detected_at, approved_at, approved_by
+            FROM updates WHERE status='approved' 
+            AND university=:u AND category=:c
+            ORDER BY detected_at DESC LIMIT :l""",
+            u=university, c=category, l=limit)
+    else:
+        rows = conn.run("""SELECT id, university, title, url, category,
+            status, detected_at, approved_at, approved_by
+            FROM updates WHERE status='approved' 
+            AND university=:u
+            ORDER BY detected_at DESC LIMIT :l""",
+            u=university, l=limit)
+    conn.close()
+    return jsonify([{"id": r[0], "university": r[1], "title": r[2],
+        "url": r[3], "category": r[4], "status": r[5],
+        "detected_at": r[6], "approved_at": r[7],
+        "approved_by": r[8]} for r in rows])
+
 @app.route('/students', methods=['GET'])
 def get_students():
     university = request.args.get('university', None)
