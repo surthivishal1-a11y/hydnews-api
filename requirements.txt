@@ -1,4 +1,6 @@
 flask
 flask-cors
 pg8000
-gunicornrequests
+gunicorn
+requests
+beautifulsoup4
