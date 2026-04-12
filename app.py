@@ -521,3 +521,32 @@ def add_news():
     except Exception as e:
         conn.close()
         return jsonify({'error': str(e)}), 500
+
+@app.route('/results/check', methods=['POST'])
+def check_result():
+    import requests as req
+    data = request.json
+    hall_ticket = data.get('hall_ticket', '')
+    year = data.get('year', '1')
+    category = data.get('category', 'G')
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': 'https://tgbienew.cgg.gov.in/tgbieResultsLiveNew2026.do',
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+        form_data = {
+            'actionpart': 'showResult',
+            'property(pass_year)': '2026',
+            'year': year,
+            'category': category,
+            'property(month)': 'M',
+            'hallticket_no': hall_ticket
+        }
+        res = req.post('https://tgbienew.cgg.gov.in/tgbieResultsLiveNew2026.do', data=form_data, headers=headers, timeout=15)
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(res.text, 'html.parser')
+        result_text = soup.get_text()
+        return jsonify({'success': True, 'html': res.text[:50000], 'result_text': result_text[:3000]})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
