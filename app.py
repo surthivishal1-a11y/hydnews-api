@@ -469,3 +469,55 @@ if __name__ == '__main__':
     setup_db()
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
+@app.route('/news/setup', methods=['POST'])
+def setup_news():
+    conn = get_conn()
+    conn.run("""CREATE TABLE IF NOT EXISTS news (
+        id SERIAL PRIMARY KEY,
+        slug TEXT UNIQUE,
+        title_english TEXT,
+        title_telugu TEXT,
+        title_hindi TEXT,
+        content_english TEXT,
+        content_telugu TEXT,
+        content_hindi TEXT,
+        source_url TEXT UNIQUE,
+        category TEXT DEFAULT 'General',
+        image_url TEXT,
+        published_at TIMESTAMP DEFAULT NOW()
+    )""")
+    conn.close()
+    return jsonify({'success': True})
+
+@app.route('/news/all', methods=['GET'])
+def get_all_news():
+    limit = int(request.args.get('limit', 20))
+    conn = get_conn()
+    rows = conn.run("""SELECT id, slug, title_english, title_telugu, title_hindi, category, image_url, published_at FROM news ORDER BY published_at DESC LIMIT :l""", l=limit)
+    conn.close()
+    return jsonify([{'id':r[0],'slug':r[1],'title_english':r[2],'title_telugu':r[3],'title_hindi':r[4],'category':r[5],'image_url':r[6],'published_at':str(r[7])} for r in rows])
+
+@app.route('/news/get/<slug>', methods=['GET'])
+def get_news_by_slug(slug):
+    conn = get_conn()
+    rows = conn.run("""SELECT * FROM news WHERE slug=:s""", s=slug)
+    conn.close()
+    if not rows:
+        return jsonify({'error': 'Not found'}), 404
+    r = rows[0]
+    return jsonify({'id':r[0],'slug':r[1],'title_english':r[2],'title_telugu':r[3],'title_hindi':r[4],'content_english':r[5],'content_telugu':r[6],'content_hindi':r[7],'source_url':r[8],'category':r[9],'image_url':r[10],'published_at':str(r[11])})
+
+@app.route('/news/add', methods=['POST'])
+def add_news():
+    data = request.json
+    conn = get_conn()
+    try:
+        conn.run("""INSERT INTO news (slug, title_english, title_telugu, title_hindi, content_english, content_telugu, content_hindi, source_url, category, image_url) VALUES (:slug, :te, :tt, :th, :ce, :ct, :ch, :url, :cat, :img) ON CONFLICT (source_url) DO NOTHING""",
+            slug=data['slug'], te=data['title_english'], tt=data.get('title_telugu',''), th=data.get('title_hindi',''),
+            ce=data['content_english'], ct=data.get('content_telugu',''), ch=data.get('content_hindi',''),
+            url=data['source_url'], cat=data.get('category','General'), img=data.get('image_url',''))
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
