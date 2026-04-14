@@ -550,3 +550,50 @@ def check_result():
         return jsonify({'success': True, 'html': res.text[:50000], 'result_text': result_text[:3000]})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/news/alter', methods=['POST'])
+def alter_news_table():
+    conn = get_conn()
+    try:
+        conn.run("""ALTER TABLE news ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending'""")
+        conn.run("""ALTER TABLE news ADD COLUMN IF NOT EXISTS accuracy_score INTEGER DEFAULT 0""")
+        conn.run("""ALTER TABLE news ADD COLUMN IF NOT EXISTS accuracy_issues TEXT DEFAULT ''""")
+        conn.run("""ALTER TABLE news ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP""")
+        conn.close()
+        return jsonify({'success': True, 'message': 'Columns added'})
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)})
+
+@app.route('/news/pending', methods=['GET'])
+def get_pending_news():
+    conn = get_conn()
+    rows = conn.run("""SELECT id, slug, title_english, title_telugu, title_hindi, category, image_url, published_at, accuracy_score, accuracy_issues FROM news WHERE status='pending' ORDER BY published_at DESC""")
+    conn.close()
+    return jsonify([{'id':r[0],'slug':r[1],'title_english':r[2],'title_telugu':r[3],'title_hindi':r[4],'category':r[5],'image_url':r[6],'published_at':str(r[7]),'accuracy_score':r[8],'accuracy_issues':r[9]} for r in rows])
+
+@app.route('/news/approve/<int:news_id>', methods=['POST'])
+def approve_news(news_id):
+    conn = get_conn()
+    conn.run("""UPDATE news SET status='published', approved_at=NOW() WHERE id=:id""", id=news_id)
+    conn.close()
+    return jsonify({'success': True})
+
+@app.route('/news/reject/<int:news_id>', methods=['POST'])
+def reject_news(news_id):
+    conn = get_conn()
+    conn.run("""DELETE FROM news WHERE id=:id""", id=news_id)
+    conn.close()
+    return jsonify({'success': True})
+
+@app.route('/news/published', methods=['GET'])
+def get_published_news():
+    limit = int(request.args.get('limit', 20))
+    category = request.args.get('category', None)
+    conn = get_conn()
+    if category:
+        rows = conn.run("""SELECT id, slug, title_english, title_telugu, title_hindi, category, image_url, published_at, accuracy_score FROM news WHERE status='published' AND category=:c ORDER BY published_at DESC LIMIT :l""", c=category, l=limit)
+    else:
+        rows = conn.run("""SELECT id, slug, title_english, title_telugu, title_hindi, category, image_url, published_at, accuracy_score FROM news WHERE status='published' ORDER BY published_at DESC LIMIT :l""", l=limit)
+    conn.close()
+    return jsonify([{'id':r[0],'slug':r[1],'title_english':r[2],'title_telugu':r[3],'title_hindi':r[4],'category':r[5],'image_url':r[6],'published_at':str(r[7]),'accuracy_score':r[8]} for r in rows])
