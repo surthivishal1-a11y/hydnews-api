@@ -629,12 +629,21 @@ def ou_register():
 
         ou_cur.execute("""
             INSERT INTO ou_students 
-            (name, whatsapp, college_name, course, current_year, current_semester, 
-             admission_year, total_years, hall_ticket, language)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-        """, (name, whatsapp, college_name or None, course, year, semester,
-              admission_year, total_years, hall_ticket or None, language))
+(name, whatsapp, course, current_year, current_semester, 
+ admission_year, total_years, hall_ticket, language)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+...
+(name, whatsapp, course, year, semester,
+ admission_year, total_years, hall_ticket or None, language)
+
+# Replace with:
+INSERT INTO ou_students 
+(name, whatsapp, college_name, course, current_year, current_semester, 
+ admission_year, total_years, hall_ticket, language)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+...
+(name, whatsapp, college_name or None, course, year, semester,
+ admission_year, total_years, hall_ticket or None, language)
 
         student_id = ou_cur.fetchone()[0]
         ou_conn.commit()
