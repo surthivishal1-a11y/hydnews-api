@@ -597,3 +597,48 @@ def get_published_news():
         rows = conn.run("""SELECT id, slug, title_english, title_telugu, title_hindi, category, image_url, published_at, accuracy_score FROM news WHERE status='published' ORDER BY published_at DESC LIMIT :l""", l=limit)
     conn.close()
     return jsonify([{'id':r[0],'slug':r[1],'title_english':r[2],'title_telugu':r[3],'title_hindi':r[4],'category':r[5],'image_url':r[6],'published_at':str(r[7]),'accuracy_score':r[8]} for r in rows])
+
+@app.route('/ou/register', methods=['POST'])
+def ou_register():
+    try:
+        data = request.json
+        name = data.get('name')
+        whatsapp = data.get('whatsapp')
+        course = data.get('course')
+        year = data.get('year')
+        semester = data.get('semester')
+        admission_year = data.get('admission_year')
+        hall_ticket = data.get('hall_ticket', '')
+        language = data.get('language', 'english')
+        total_years = data.get('total_years', 3)
+
+        if not all([name, whatsapp, course, year, semester, admission_year]):
+            return jsonify({'error': 'Missing required fields'}), 400
+
+        import psycopg2
+        ou_conn = psycopg2.connect("postgresql://neondb_owner:npg_2SXT8jfJCQau@ep-shy-queen-aos33kjk-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+        ou_cur = ou_conn.cursor()
+
+        ou_cur.execute("SELECT id FROM ou_students WHERE whatsapp=%s", (whatsapp,))
+        if ou_cur.fetchone():
+            ou_cur.close()
+            ou_conn.close()
+            return jsonify({'error': 'WhatsApp number already registered'}), 400
+
+        ou_cur.execute("""
+            INSERT INTO ou_students 
+            (name, whatsapp, course, current_year, current_semester, 
+             admission_year, total_years, hall_ticket, language)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (name, whatsapp, course, year, semester,
+              admission_year, total_years, hall_ticket or None, language))
+
+        student_id = ou_cur.fetchone()[0]
+        ou_conn.commit()
+        ou_cur.close()
+        ou_conn.close()
+
+        return jsonify({'success': True, 'student_id': student_id})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
