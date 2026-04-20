@@ -4,3 +4,4 @@ pg8000
 gunicorn
 requests
 beautifulsoup4
+psycopg2-binary
