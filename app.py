@@ -527,7 +527,7 @@ def check_result():
     import requests as req
     data = request.json
     hall_ticket = data.get('hall_ticket', '')
-        college_name = data.get('college_name', '')
+
     year = data.get('year', '1')
     category = data.get('category', 'G')
     try:
@@ -633,7 +633,7 @@ def ou_register():
              admission_year, total_years, hall_ticket, language)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
-        """, (name, whatsapp, college_name or None, course, year, semester,
+        """, (name, whatsapp, college_name if college_name else None, course, year, semester,
               admission_year, total_years, hall_ticket or None, language))
 
         student_id = ou_cur.fetchone()[0]
