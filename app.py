@@ -644,3 +644,141 @@ def ou_register():
         return jsonify({'success': True, 'student_id': student_id})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/ou/notifications/pending', methods=['GET'])
+def ou_pending_notifications():
+    try:
+        import psycopg2
+        conn = psycopg2.connect("postgresql://neondb_owner:npg_2SXT8jfJCQau@ep-shy-queen-aos33kjk-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, title, url, category, detected_at 
+            FROM ou_notifications 
+            WHERE approval_status='pending' 
+            ORDER BY detected_at DESC 
+            LIMIT 50
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return jsonify([{
+            'id': r[0], 'title': r[1], 'url': r[2],
+            'category': r[3], 'detected_at': str(r[4])
+        } for r in rows])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/ou/notifications/approve/<int:notif_id>', methods=['POST'])
+def ou_approve_notification(notif_id):
+    try:
+        import psycopg2
+        conn = psycopg2.connect("postgresql://neondb_owner:npg_2SXT8jfJCQau@ep-shy-queen-aos33kjk-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE ou_notifications 
+            SET approval_status='approved', approved_at=NOW()
+            WHERE id=%s
+            RETURNING title, url, category
+        """, (notif_id,))
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'success': True, 'title': row[0]})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/ou/notifications/reject/<int:notif_id>', methods=['POST'])
+def ou_reject_notification(notif_id):
+    try:
+        import psycopg2
+        conn = psycopg2.connect("postgresql://neondb_owner:npg_2SXT8jfJCQau@ep-shy-queen-aos33kjk-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+        cur = conn.cursor()
+        cur.execute("UPDATE ou_notifications SET approval_status='rejected' WHERE id=%s", (notif_id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/ou/students/all', methods=['GET'])
+def ou_all_students():
+    try:
+        import psycopg2
+        conn = psycopg2.connect("postgresql://neondb_owner:npg_2SXT8jfJCQau@ep-shy-queen-aos33kjk-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, name, whatsapp, college_name, course, 
+            current_year, current_semester, hall_ticket, status, registered_at
+            FROM ou_students ORDER BY registered_at DESC
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return jsonify([{
+            'id': r[0], 'name': r[1], 'whatsapp': r[2],
+            'college': r[3], 'course': r[4], 'year': r[5],
+            'semester': r[6], 'hall_ticket': r[7],
+            'status': r[8], 'registered_at': str(r[9])
+        } for r in rows])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/ou/alerts/history', methods=['GET'])
+def ou_alerts_history():
+    try:
+        import psycopg2
+        conn = psycopg2.connect("postgresql://neondb_owner:npg_2SXT8jfJCQau@ep-shy-queen-aos33kjk-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT a.id, s.name, s.whatsapp, s.course, 
+            a.type, a.whatsapp_status, a.sent_at
+            FROM ou_alerts_sent a
+            JOIN ou_students s ON a.student_id = s.id
+            ORDER BY a.sent_at DESC LIMIT 100
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return jsonify([{
+            'id': r[0], 'name': r[1], 'whatsapp': r[2],
+            'course': r[3], 'type': r[4],
+            'status': r[5], 'sent_at': str(r[6])
+        } for r in rows])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/ou/dashboard', methods=['GET'])
+def ou_dashboard():
+    try:
+        import psycopg2
+        conn = psycopg2.connect("postgresql://neondb_owner:npg_2SXT8jfJCQau@ep-shy-queen-aos33kjk-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM ou_students WHERE status='active'")
+        students = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM ou_notifications WHERE approval_status='pending'")
+        pending = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM ou_notifications")
+        total_notifs = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM ou_alerts_sent WHERE sent_at::date = CURRENT_DATE")
+        alerts_today = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM ou_notifications WHERE category='Results'")
+        results = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM ou_notifications WHERE category='Time Tables'")
+        timetables = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM ou_notifications WHERE category='Notifications'")
+        notifications = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+        return jsonify({
+            'students': students,
+            'pending_approvals': pending,
+            'total_notifications': total_notifs,
+            'alerts_today': alerts_today,
+            'results': results,
+            'timetables': timetables,
+            'notifications': notifications
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
