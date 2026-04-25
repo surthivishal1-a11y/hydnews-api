@@ -618,7 +618,7 @@ def ou_register():
             return jsonify({'error': 'Missing required fields'}), 400
 
         import psycopg2
-        ou_conn = psycopg2.connect("postgresql://neondb_owner:npg_2SXT8jfJCQau@ep-shy-queen-aos33kjk-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+        ou_conn = psycopg2.connect("postgresql://postgres:MWJnIiZQjLZfMONQuEQPMGSBFkNOpKeB@postgres.railway.internal:5432/railway")
         ou_cur = ou_conn.cursor()
 
         ou_cur.execute("SELECT id FROM ou_students WHERE whatsapp=%s", (whatsapp,))
@@ -649,7 +649,7 @@ def ou_register():
 def ou_pending_notifications():
     try:
         import psycopg2
-        conn = psycopg2.connect("postgresql://neondb_owner:npg_2SXT8jfJCQau@ep-shy-queen-aos33kjk-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+        conn = psycopg2.connect("postgresql://postgres:MWJnIiZQjLZfMONQuEQPMGSBFkNOpKeB@postgres.railway.internal:5432/railway")
         cur = conn.cursor()
         cur.execute("""
             SELECT id, title, url, category, detected_at 
@@ -672,7 +672,7 @@ def ou_pending_notifications():
 def ou_approve_notification(notif_id):
     try:
         import psycopg2
-        conn = psycopg2.connect("postgresql://neondb_owner:npg_2SXT8jfJCQau@ep-shy-queen-aos33kjk-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+        conn = psycopg2.connect("postgresql://postgres:MWJnIiZQjLZfMONQuEQPMGSBFkNOpKeB@postgres.railway.internal:5432/railway")
         cur = conn.cursor()
         cur.execute("""
             UPDATE ou_notifications 
@@ -692,7 +692,7 @@ def ou_approve_notification(notif_id):
 def ou_reject_notification(notif_id):
     try:
         import psycopg2
-        conn = psycopg2.connect("postgresql://neondb_owner:npg_2SXT8jfJCQau@ep-shy-queen-aos33kjk-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+        conn = psycopg2.connect("postgresql://postgres:MWJnIiZQjLZfMONQuEQPMGSBFkNOpKeB@postgres.railway.internal:5432/railway")
         cur = conn.cursor()
         cur.execute("UPDATE ou_notifications SET approval_status='rejected' WHERE id=%s", (notif_id,))
         conn.commit()
@@ -706,7 +706,7 @@ def ou_reject_notification(notif_id):
 def ou_all_students():
     try:
         import psycopg2
-        conn = psycopg2.connect("postgresql://neondb_owner:npg_2SXT8jfJCQau@ep-shy-queen-aos33kjk-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+        conn = psycopg2.connect("postgresql://postgres:MWJnIiZQjLZfMONQuEQPMGSBFkNOpKeB@postgres.railway.internal:5432/railway")
         cur = conn.cursor()
         cur.execute("""
             SELECT id, name, whatsapp, college_name, course, 
@@ -729,7 +729,7 @@ def ou_all_students():
 def ou_alerts_history():
     try:
         import psycopg2
-        conn = psycopg2.connect("postgresql://neondb_owner:npg_2SXT8jfJCQau@ep-shy-queen-aos33kjk-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+        conn = psycopg2.connect("postgresql://postgres:MWJnIiZQjLZfMONQuEQPMGSBFkNOpKeB@postgres.railway.internal:5432/railway")
         cur = conn.cursor()
         cur.execute("""
             SELECT a.id, s.name, s.whatsapp, s.course, 
@@ -753,7 +753,7 @@ def ou_alerts_history():
 def ou_dashboard():
     try:
         import psycopg2
-        conn = psycopg2.connect("postgresql://neondb_owner:npg_2SXT8jfJCQau@ep-shy-queen-aos33kjk-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+        conn = psycopg2.connect("postgresql://postgres:MWJnIiZQjLZfMONQuEQPMGSBFkNOpKeB@postgres.railway.internal:5432/railway")
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM ou_students WHERE status='active'")
         students = cur.fetchone()[0]
