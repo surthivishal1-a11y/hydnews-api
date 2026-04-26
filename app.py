@@ -782,3 +782,40 @@ def ou_dashboard():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/ou/scraper/logs', methods=['GET'])
+def ou_scraper_logs():
+    try:
+        import psycopg2
+        conn = psycopg2.connect("postgresql://postgres:MWJnIiZQjLZfMONQuEQPMGSBFkNOpKeB@postgres.railway.internal:5432/railway")
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT title, category, detected_at, approval_status
+            FROM ou_notifications
+            ORDER BY detected_at DESC
+            LIMIT 20
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        logs = []
+        for r in rows:
+            if r[3] == 'pending':
+                emoji = '🔔'
+            elif r[3] == 'approved':
+                emoji = '✅'
+            else:
+                emoji = '❌'
+            logs.append({
+                'message': f"{emoji} [{r[1]}] {r[0][:60]}",
+                'time': str(r[2]),
+                'status': r[3],
+                'category': r[1]
+            })
+        return jsonify({
+            'logs': logs,
+            'scraper_status': 'running',
+            'last_updated': str(_import_('datetime').datetime.now())
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
