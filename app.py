@@ -815,7 +815,7 @@ def ou_scraper_logs():
         return jsonify({
             'logs': logs,
             'scraper_status': 'running',
-            'last_updated': str(_import_('datetime').datetime.now())
+            'last_updated': str(rows[0][2]) if rows else ''
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
