@@ -856,8 +856,6 @@ def ou_result_check():
                 if not href.startswith("http"):
                     href = "https://www.osmania.ac.in/" + href.lstrip("/")
                 pages.append(href)
-        pages = pages[:50]  # Check only top 50 recent pages
-        pages = list(dict.fromkeys(pages))
 
         # Check each page
         for page in pages:
@@ -1008,17 +1006,6 @@ def check_result_background(job_id, hall_ticket):
 
         result_jobs[job_id] = {"status": "checking", "progress": 0, "total": 0}
 
-        # Check cache first
-        conn = psycopg2.connect("postgresql://postgres:MWJnIiZQjLZfMONQuEQPMGSBFkNOpKeB@postgres.railway.internal:5432/railway")
-        cur = conn.cursor()
-        cur.execute("SELECT result_data FROM ou_results WHERE hall_ticket=%s ORDER BY detected_at DESC LIMIT 1", (hall_ticket,))
-        cached = cur.fetchone()
-        if cached:
-            result_jobs[job_id] = {"status": "found", "result": json.loads(cached[0])}
-            cur.close()
-            conn.close()
-            return
-
         # Get all result pages
         res = req.get("https://www.osmania.ac.in/examination-results.php",
             headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False)
@@ -1034,14 +1021,12 @@ def check_result_background(job_id, hall_ticket):
                     pages.append(href)
 
         result_jobs[job_id]["total"] = len(pages)
-        found_result = None
+        all_results = []
 
-        # Check in batches of 30 parallel requests
+        # Check ALL pages in batches of 30 parallel requests
         batch_size = 30
         checked = 0
         for i in range(0, len(pages), batch_size):
-            if found_result:
-                break
             batch = pages[i:i+batch_size]
             with ThreadPoolExecutor(max_workers=30) as executor:
                 futures = {executor.submit(check_single_page, page, hall_ticket): page for page in batch}
@@ -1050,19 +1035,62 @@ def check_result_background(job_id, hall_ticket):
                     result_jobs[job_id]["progress"] = checked
                     result = future.result()
                     if result:
-                        found_result = result
-                        break
+                        all_results.append(result)
 
-        if found_result:
+        if all_results:
+            # Sort by exam title to get semester order
+            all_results.sort(key=lambda x: x.get("exam_title", ""))
+            
+            # Get student info from first result
+            first = all_results[0]
+            name = first.get("name", "")
+            course = first.get("course", "")
+            
+            # Build backlogs list
+            backlogs = []
+            for r in all_results:
+                for s in r.get("subjects", []):
+                    if s["grade"] in ["F", "AB"]:
+                        backlogs.append({
+                            "subject": s["name"],
+                            "grade": s["grade"],
+                            "exam": r.get("exam_title", "")
+                        })
+            
+            # Build semester summary
+            semesters = []
+            for r in all_results:
+                semesters.append({
+                    "exam_title": r.get("exam_title", ""),
+                    "status": r.get("status", ""),
+                    "subjects": r.get("subjects", []),
+                    "result_page": r.get("result_page", "")
+                })
+
+            final_result = {
+                "found": True,
+                "hall_ticket": hall_ticket,
+                "name": name,
+                "course": course,
+                "total_exams": len(all_results),
+                "backlogs": backlogs,
+                "backlog_count": len(backlogs),
+                "semesters": semesters,
+                "latest_result": all_results[-1] if all_results else None
+            }
+
+            # Save to cache
+            conn = psycopg2.connect("postgresql://postgres:MWJnIiZQjLZfMONQuEQPMGSBFkNOpKeB@postgres.railway.internal:5432/railway")
+            cur = conn.cursor()
             cur.execute("INSERT INTO ou_results (hall_ticket, result_data, result_status) VALUES (%s, %s, %s)",
-                (hall_ticket, json.dumps(found_result), found_result.get("status", "")))
+                (hall_ticket, json.dumps(final_result), "found"))
             conn.commit()
-            result_jobs[job_id] = {"status": "found", "result": found_result}
+            cur.close()
+            conn.close()
+
+            result_jobs[job_id] = {"status": "found", "result": final_result}
         else:
             result_jobs[job_id] = {"status": "not_found"}
-
-        cur.close()
-        conn.close()
 
     except Exception as e:
         result_jobs[job_id] = {"status": "error", "message": str(e)}
