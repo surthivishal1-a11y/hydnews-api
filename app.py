@@ -1075,7 +1075,7 @@ def ou_result_start():
         if len(hall_ticket) != 12:
             return jsonify({'error': 'Invalid hall ticket'}), 400
         
-        job_id = hall_ticket + "" + str(int(import_('time').time()))
+        job_id = hall_ticket + "" + str(int(_import_('time').time()))
         thread = threading.Thread(target=check_result_background, args=(job_id, hall_ticket))
         thread.daemon = True
         thread.start()
