@@ -856,6 +856,8 @@ def ou_result_check():
                 if not href.startswith("http"):
                     href = "https://www.osmania.ac.in/" + href.lstrip("/")
                 pages.append(href)
+        pages = pages[:50]  # Check only top 50 recent pages
+        pages = list(dict.fromkeys(pages))
 
         # Check each page
         for page in pages:
@@ -954,3 +956,135 @@ def ou_register_quick():
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+import threading
+import json
+
+result_jobs = {}
+
+def check_single_page(page, hall_ticket):
+    try:
+        import requests as req
+        from bs4 import BeautifulSoup
+        import urllib3
+        urllib3.disable_warnings()
+        res = req.post(page,
+            data={"htno": hall_ticket, "mbstatus": "SEARCH"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=8, verify=False)
+        soup = BeautifulSoup(res.text, "html.parser")
+        text = soup.get_text()
+        if hall_ticket not in text or "Is Not Found" in text:
+            return None
+        name = course = status = ""
+        subjects = []
+        for row in soup.find_all("tr"):
+            cells = [td.get_text(strip=True) for td in row.find_all(["td","th"])]
+            if not cells: continue
+            if "Name" in cells and len(cells) > 1:
+                idx = cells.index("Name")
+                if idx+1 < len(cells): name = cells[idx+1]
+            if "Course" in cells and len(cells) > 1:
+                idx = cells.index("Course")
+                if idx+1 < len(cells): course = cells[idx+1]
+            if len(cells) == 4 and cells[0].isdigit():
+                subjects.append({"code": cells[0], "name": cells[1], "credits": cells[2], "grade": cells[3]})
+            if "PROMOTED" in " ".join(cells): status = "PROMOTED"
+            if "FAILED" in " ".join(cells): status = "FAILED"
+        if name:
+            return {"found": True, "hall_ticket": hall_ticket, "name": name, "course": course, "subjects": subjects, "status": status, "result_page": page}
+        return None
+    except:
+        return None
+
+def check_result_background(job_id, hall_ticket):
+    try:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import requests as req
+        from bs4 import BeautifulSoup
+        import urllib3
+        urllib3.disable_warnings()
+        import psycopg2
+
+        result_jobs[job_id] = {"status": "checking", "progress": 0, "total": 0}
+
+        # Check cache first
+        conn = psycopg2.connect("postgresql://postgres:MWJnIiZQjLZfMONQuEQPMGSBFkNOpKeB@postgres.railway.internal:5432/railway")
+        cur = conn.cursor()
+        cur.execute("SELECT result_data FROM ou_results WHERE hall_ticket=%s ORDER BY detected_at DESC LIMIT 1", (hall_ticket,))
+        cached = cur.fetchone()
+        if cached:
+            result_jobs[job_id] = {"status": "found", "result": json.loads(cached[0])}
+            cur.close()
+            conn.close()
+            return
+
+        # Get all result pages
+        res = req.get("https://www.osmania.ac.in/examination-results.php",
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False)
+        soup = BeautifulSoup(res.text, "html.parser")
+        
+        pages = []
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if "res07" in href:
+                if not href.startswith("http"):
+                    href = "https://www.osmania.ac.in/" + href.lstrip("/")
+                if href not in pages:
+                    pages.append(href)
+
+        result_jobs[job_id]["total"] = len(pages)
+        found_result = None
+
+        # Check in batches of 30 parallel requests
+        batch_size = 30
+        checked = 0
+        for i in range(0, len(pages), batch_size):
+            if found_result:
+                break
+            batch = pages[i:i+batch_size]
+            with ThreadPoolExecutor(max_workers=30) as executor:
+                futures = {executor.submit(check_single_page, page, hall_ticket): page for page in batch}
+                for future in as_completed(futures):
+                    checked += 1
+                    result_jobs[job_id]["progress"] = checked
+                    result = future.result()
+                    if result:
+                        found_result = result
+                        break
+
+        if found_result:
+            cur.execute("INSERT INTO ou_results (hall_ticket, result_data, result_status) VALUES (%s, %s, %s)",
+                (hall_ticket, json.dumps(found_result), found_result.get("status", "")))
+            conn.commit()
+            result_jobs[job_id] = {"status": "found", "result": found_result}
+        else:
+            result_jobs[job_id] = {"status": "not_found"}
+
+        cur.close()
+        conn.close()
+
+    except Exception as e:
+        result_jobs[job_id] = {"status": "error", "message": str(e)}
+
+@app.route('/ou/result/start', methods=['POST'])
+def ou_result_start():
+    try:
+        data = request.json
+        hall_ticket = data.get('hall_ticket', '').strip()
+        if len(hall_ticket) != 12:
+            return jsonify({'error': 'Invalid hall ticket'}), 400
+        
+        job_id = hall_ticket + "" + str(int(import_('time').time()))
+        thread = threading.Thread(target=check_result_background, args=(job_id, hall_ticket))
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({'job_id': job_id, 'status': 'started'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/ou/result/status/<job_id>', methods=['GET'])
+def ou_result_status(job_id):
+    job = result_jobs.get(job_id, {"status": "not_found"})
+    return jsonify(job)
