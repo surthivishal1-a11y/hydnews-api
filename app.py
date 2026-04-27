@@ -819,3 +819,138 @@ def ou_scraper_logs():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/ou/result/check', methods=['POST'])
+def ou_result_check():
+    try:
+        import requests as req
+        from bs4 import BeautifulSoup
+        import urllib3
+        urllib3.disable_warnings()
+        
+        data = request.json
+        hall_ticket = data.get('hall_ticket', '').strip()
+        
+        if len(hall_ticket) != 12:
+            return jsonify({'error': 'Invalid hall ticket'}), 400
+
+        # Check cache first
+        import psycopg2
+        conn = psycopg2.connect("postgresql://postgres:MWJnIiZQjLZfMONQuEQPMGSBFkNOpKeB@postgres.railway.internal:5432/railway")
+        cur = conn.cursor()
+        cur.execute("SELECT result_data FROM ou_results WHERE hall_ticket=%s ORDER BY detected_at DESC LIMIT 1", (hall_ticket,))
+        cached = cur.fetchone()
+        if cached:
+            import json
+            return jsonify(json.loads(cached[0]))
+
+        # Get all result pages
+        res = req.get("https://www.osmania.ac.in/examination-results.php",
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False)
+        soup = BeautifulSoup(res.text, "html.parser")
+        
+        pages = []
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if "res07" in href:
+                if not href.startswith("http"):
+                    href = "https://www.osmania.ac.in/" + href.lstrip("/")
+                pages.append(href)
+
+        # Check each page
+        for page in pages:
+            try:
+                res2 = req.post(page,
+                    data={"htno": hall_ticket, "mbstatus": "SEARCH"},
+                    headers={"User-Agent": "Mozilla/5.0"},
+                    timeout=10, verify=False)
+                soup2 = BeautifulSoup(res2.text, "html.parser")
+                text = soup2.get_text()
+                
+                if hall_ticket not in text or "Is Not Found" in text:
+                    continue
+
+                # Parse result
+                name = course = ""
+                subjects = []
+                status = ""
+
+                for row in soup2.find_all("tr"):
+                    cells = [td.get_text(strip=True) for td in row.find_all(["td","th"])]
+                    if not cells: continue
+                    if "Name" in cells and len(cells) > 1:
+                        idx = cells.index("Name")
+                        if idx+1 < len(cells): name = cells[idx+1]
+                    if "Course" in cells and len(cells) > 1:
+                        idx = cells.index("Course")
+                        if idx+1 < len(cells): course = cells[idx+1]
+                    if len(cells) == 4 and cells[0].isdigit():
+                        subjects.append({"code": cells[0], "name": cells[1], "credits": cells[2], "grade": cells[3]})
+                    if "PROMOTED" in " ".join(cells):
+                        status = "PROMOTED"
+                    if "FAILED" in " ".join(cells):
+                        status = "FAILED"
+
+                if name:
+                    result = {
+                        "found": True,
+                        "hall_ticket": hall_ticket,
+                        "name": name,
+                        "course": course,
+                        "subjects": subjects,
+                        "status": status,
+                        "result_page": page
+                    }
+                    # Save to cache
+                    import json
+                    cur.execute("""
+                        INSERT INTO ou_results (hall_ticket, result_data, result_status)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT DO NOTHING
+                    """, (hall_ticket, json.dumps(result), status))
+                    conn.commit()
+                    cur.close()
+                    conn.close()
+                    return jsonify(result)
+            except:
+                continue
+
+        cur.close()
+        conn.close()
+        return jsonify({"found": False})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/ou/register/quick', methods=['POST'])
+def ou_register_quick():
+    try:
+        import psycopg2
+        data = request.json
+        whatsapp = data.get('whatsapp', '').strip()
+        hall_ticket = data.get('hall_ticket', '').strip()
+        name = data.get('name', '').strip()
+        course = data.get('course', '').strip()
+
+        if not whatsapp or len(whatsapp) < 10:
+            return jsonify({'error': 'Invalid WhatsApp number'}), 400
+
+        conn = psycopg2.connect("postgresql://postgres:MWJnIiZQjLZfMONQuEQPMGSBFkNOpKeB@postgres.railway.internal:5432/railway")
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM ou_students WHERE whatsapp=%s", (whatsapp,))
+        if cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({'success': True, 'message': 'Already registered'})
+
+        cur.execute("""
+            INSERT INTO ou_students (name, whatsapp, course, hall_ticket, university, current_year, current_semester, admission_year, total_years, language, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (name or 'OU Student', whatsapp, course or 'Unknown', hall_ticket or None, 'Osmania University', 1, 1, 2025, 3, 'english', 'active'))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
