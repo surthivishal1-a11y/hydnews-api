@@ -972,7 +972,9 @@ def check_single_page(page, hall_ticket):
             timeout=8, verify=False)
         soup = BeautifulSoup(res.text, "html.parser")
         text = soup.get_text()
-        if hall_ticket not in text or "Is Not Found" in text:
+        if hall_ticket not in text:
+            return None
+        if "Is Not Found" in text:
             return None
         name = course = status = ""
         subjects = []
@@ -989,6 +991,15 @@ def check_single_page(page, hall_ticket):
                 subjects.append({"code": cells[0], "name": cells[1], "credits": cells[2], "grade": cells[3]})
             if "PROMOTED" in " ".join(cells): status = "PROMOTED"
             if "FAILED" in " ".join(cells): status = "FAILED"
+        # Handle NO CHANGE result
+        if "NO CHANGE" in soup.get_text():
+            exam_title = ""
+            for tag in soup.find_all(["td","th","h1","h2","h3"]):
+                t = tag.get_text(strip=True)
+                if len(t) > 10 and any(x in t.lower() for x in ["sem","year","b.com","results"]):
+                    exam_title = t[:100]
+                    break
+            return {"found": True, "hall_ticket": hall_ticket, "name": hall_ticket, "course": "", "subjects": [], "status": "NO_CHANGE", "result_page": page, "exam_title": exam_title}
         if name:
             if subjects and all(s["grade"] not in ["F","AB"] for s in subjects):
                 status = "PROMOTED"
