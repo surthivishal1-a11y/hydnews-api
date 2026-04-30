@@ -990,7 +990,17 @@ def check_single_page(page, hall_ticket):
             if "PROMOTED" in " ".join(cells): status = "PROMOTED"
             if "FAILED" in " ".join(cells): status = "FAILED"
         if name:
-            return {"found": True, "hall_ticket": hall_ticket, "name": name, "course": course, "subjects": subjects, "status": status, "result_page": page}
+            if subjects and all(s["grade"] not in ["F","AB"] for s in subjects):
+                status = "PROMOTED"
+            elif not status:
+                status = "PROMOTED"
+            exam_title = ""
+            for tag in soup.find_all(["td", "th", "h1", "h2", "h3"]):
+                text = tag.get_text(strip=True)
+                if len(text) > 10 and any(x in text.lower() for x in ["sem", "year", "b.com", "b.sc", "b.a", "mba", "mca", "results", "examination"]):
+                    exam_title = text[:100]
+                    break
+            return {"found": True, "hall_ticket": hall_ticket, "name": name, "course": course, "subjects": subjects, "status": status, "result_page": page, "exam_title": exam_title}
         return None
     except:
         return None
@@ -1073,6 +1083,8 @@ def check_result_background(job_id, hall_ticket):
                 "name": name,
                 "course": course,
                 "total_exams": len(all_results),
+                "found_sems": found_sem_numbers,
+                "missing_sems": missing_sems,
                 "backlogs": backlogs,
                 "backlog_count": len(backlogs),
                 "semesters": semesters,
