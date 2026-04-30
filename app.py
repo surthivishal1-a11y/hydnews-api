@@ -1048,34 +1048,80 @@ def check_result_background(job_id, hall_ticket):
                         all_results.append(result)
 
         if all_results:
-            # Sort by exam title to get semester order
-            all_results.sort(key=lambda x: x.get("exam_title", ""))
-            
-            # Get student info from first result
-            first = all_results[0]
-            name = first.get("name", "")
-            course = first.get("course", "")
-            
-            # Build backlogs list
-            backlogs = []
+            import re
+
+            # Get student info
+            name = all_results[0].get("name", "")
+            course = all_results[0].get("course", "")
+
+            # Extract semester number from exam title
+            def get_sem_num(title):
+                title = title.lower()
+                m = re.search(r'sem[-\s]*([ivx\d]+)', title)
+                if m:
+                    s = m.group(1).upper()
+                    mp = {"I":1,"II":2,"III":3,"IV":4,"V":5,"VI":6,"1":1,"2":2,"3":3,"4":4,"5":5,"6":6}
+                    return mp.get(s, 0)
+                return 0
+
+            def get_result_type(title):
+                t = title.lower()
+                if "rv" in t or "revaluation" in t: return "RV"
+                if "supply" in t or "backlog" in t or "otc" in t or "one time" in t: return "Supply"
+                return "Regular"
+
             for r in all_results:
+                r["sem_number"] = get_sem_num(r.get("exam_title", ""))
+                r["result_type"] = get_result_type(r.get("exam_title", ""))
+
+            type_order = {"Regular":0,"Supply":1,"RV":2}
+            all_results.sort(key=lambda x: (x.get("sem_number",0), type_order.get(x.get("result_type","Regular"),0)))
+
+            # Track subject attempts - key = (sem_num, subject_name)
+            subject_attempts = {}
+            for r in all_results:
+                sem = r.get("sem_number", 0)
                 for s in r.get("subjects", []):
-                    if s["grade"] in ["F", "AB"]:
-                        backlogs.append({
-                            "subject": s["name"],
-                            "grade": s["grade"],
-                            "exam": r.get("exam_title", "")
-                        })
-            
-            # Build semester summary
-            semesters = []
+                    key = (sem, s["name"].strip())
+                    if key not in subject_attempts:
+                        subject_attempts[key] = []
+                    subject_attempts[key].append({
+                        "grade": s["grade"],
+                        "result_type": r.get("result_type","Regular"),
+                        "exam_title": r.get("exam_title","")
+                    })
+
+            # Active backlogs = subject where NO attempt passed
+            backlogs = []
+            seen = set()
+            for (sem, subj), attempts in subject_attempts.items():
+                if subj in seen: continue
+                passed = any(a["grade"] not in ["F","AB",""] for a in attempts)
+                if not passed:
+                    seen.add(subj)
+                    latest = attempts[-1]
+                    backlogs.append({
+                        "subject": subj,
+                        "grade": latest["grade"],
+                        "sem_number": sem,
+                        "exam": latest["exam_title"]
+                    })
+
+            # Semester summary - latest attempt per semester
+            sem_map = {}
             for r in all_results:
-                semesters.append({
-                    "exam_title": r.get("exam_title", ""),
-                    "status": r.get("status", ""),
-                    "subjects": r.get("subjects", []),
-                    "result_page": r.get("result_page", "")
-                })
+                sem = r.get("sem_number", 0)
+                sem_map[sem] = {
+                    "sem_number": sem,
+                    "exam_title": r.get("exam_title",""),
+                    "result_type": r.get("result_type","Regular"),
+                    "subjects": r.get("subjects",[]),
+                    "status": r.get("status","")
+                }
+
+            semesters = sorted(sem_map.values(), key=lambda x: x["sem_number"])
+            found_sem_numbers = [s["sem_number"] for s in semesters if s["sem_number"] > 0]
+            missing_sems = [s for s in range(1,7) if s not in found_sem_numbers]
 
             final_result = {
                 "found": True,
