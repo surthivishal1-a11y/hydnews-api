@@ -1056,13 +1056,33 @@ def check_result_background(job_id, hall_ticket):
 
             # Extract semester number from exam title
             def get_sem_num(title):
-                title = title.lower()
-                m = re.search(r'sem[-\s]*([ivx\d]+)', title)
-                if m:
-                    s = m.group(1).upper()
-                    mp = {"I":1,"II":2,"III":3,"IV":4,"V":5,"VI":6,"1":1,"2":2,"3":3,"4":4,"5":5,"6":6}
-                    return mp.get(s, 0)
+                title_lower = title.lower()
+                # Find all semester numbers in title
+                matches = re.findall(r'sem[-\s]*([ivx\d,&\s]+)', title_lower)
+                sem_mp = {"i":1,"ii":2,"iii":3,"iv":4,"v":5,"vi":6,"1":1,"2":2,"3":3,"4":4,"5":5,"6":6}
+                if matches:
+                    # Get the highest semester number (latest sem in multi-sem page)
+                    nums = []
+                    for m in matches:
+                        parts = re.findall(r'[ivx\d]+', m)
+                        for p in parts:
+                            if p.lower() in sem_mp:
+                                nums.append(sem_mp[p.lower()])
+                    return max(nums) if nums else 0
                 return 0
+            
+            def get_all_sem_nums(title):
+                title_lower = title.lower()
+                matches = re.findall(r'sem[-\s]*([ivx\d,&\s]+)', title_lower)
+                sem_mp = {"i":1,"ii":2,"iii":3,"iv":4,"v":5,"vi":6,"1":1,"2":2,"3":3,"4":4,"5":5,"6":6}
+                nums = []
+                if matches:
+                    for m in matches:
+                        parts = re.findall(r'[ivx\d]+', m)
+                        for p in parts:
+                            if p.lower() in sem_mp:
+                                nums.append(sem_mp[p.lower()])
+                return list(set(nums)) if nums else [0]
 
             def get_result_type(title):
                 t = title.lower()
@@ -1072,6 +1092,7 @@ def check_result_background(job_id, hall_ticket):
 
             for r in all_results:
                 r["sem_number"] = get_sem_num(r.get("exam_title", ""))
+                r["all_sem_numbers"] = get_all_sem_nums(r.get("exam_title", ""))
                 r["result_type"] = get_result_type(r.get("exam_title", ""))
 
             type_order = {"Regular":0,"Supply":1,"RV":2}
@@ -1120,7 +1141,13 @@ def check_result_background(job_id, hall_ticket):
                 }
 
             semesters = sorted(sem_map.values(), key=lambda x: x["sem_number"])
-            found_sem_numbers = [s["sem_number"] for s in semesters if s["sem_number"] > 0]
+            # Collect all found semester numbers including multi-sem pages
+            found_sem_numbers = []
+            for r in all_results:
+                for sn in r.get("all_sem_numbers", [r.get("sem_number", 0)]):
+                    if sn > 0 and sn not in found_sem_numbers:
+                        found_sem_numbers.append(sn)
+            found_sem_numbers.sort()
             missing_sems = [s for s in range(1,7) if s not in found_sem_numbers]
 
             final_result = {
