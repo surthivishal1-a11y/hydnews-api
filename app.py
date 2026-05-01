@@ -1213,3 +1213,75 @@ def ou_result_start():
 def ou_result_status(job_id):
     job = result_jobs.get(job_id, {"status": "not_found"})
     return jsonify(job)
+
+# NEWS ENDPOINTS
+import psycopg2
+
+NEWS_DB_URL = "postgresql://neondb_owner:npg_cTxWyO9hfA5C@ep-steep-surf-a12jsqi7-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
+
+def get_news_conn():
+    return psycopg2.connect(NEWS_DB_URL)
+
+@app.route('/news', methods=['GET'])
+def get_news():
+    try:
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 20))
+        offset = (page - 1) * limit
+        conn = get_news_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, title, slug, author, category, published_at, created_at
+            FROM news_articles
+            ORDER BY created_at DESC
+            LIMIT %s OFFSET %s
+        """, (limit, offset))
+        rows = cur.fetchall()
+        cur.execute("SELECT COUNT(*) FROM news_articles")
+        total = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+        articles = []
+        for row in rows:
+            articles.append({
+                "id": row[0],
+                "title": row[1],
+                "slug": row[2],
+                "author": row[3],
+                "category": row[4],
+                "published_at": row[5],
+                "created_at": str(row[6])
+            })
+        return jsonify({"articles": articles, "total": total, "page": page})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/news/<slug>', methods=['GET'])
+def get_news_article(slug):
+    try:
+        conn = get_news_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, title, slug, content, telugu_summary, author, category, published_at, original_url, created_at
+            FROM news_articles
+            WHERE slug = %s
+        """, (slug,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row:
+            return jsonify({"error": "Article not found"}), 404
+        return jsonify({
+            "id": row[0],
+            "title": row[1],
+            "slug": row[2],
+            "content": row[3],
+            "telugu_summary": row[4],
+            "author": row[5],
+            "category": row[6],
+            "published_at": row[7],
+            "original_url": row[8],
+            "created_at": str(row[9])
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
